@@ -1,0 +1,383 @@
+// ─── prisma/schema.prisma ─────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+// Note: SQLite does not support native enums, Prisma handles this at application level
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model User {
+  id                   String    @id @default(cuid())
+  name                 String
+  email                String    @unique
+  passwordHash         String
+  bio                  String?
+  avatarUrl            String?
+  role                 String    @default("USER")
+  isActive             Boolean   @default(true)
+  emailVerified        Boolean   @default(false)
+  emailVerifyToken     String?
+  passwordResetToken   String?
+  passwordResetExpires DateTime?
+  loginAttempts        Int       @default(0)
+  lockedUntil          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relations
+  communities          CommunityMember[]
+  posts                Post[]
+  postUpdates          PostUpdate[]
+  helpfulVotes         HelpfulVote[]
+  validityConfirms     ValidityConfirmation[]
+  reports              Report[]
+  savedPosts           SavedPost[]
+  followedPosts        FollowedPost[]
+  refreshTokens        RefreshToken[]
+  notifications        Notification[]
+  categoryProposals    CategoryProposal[]
+  proposalSupports     ProposalSupport[]
+  auditLogs            AuditLog[]
+  notificationPrefs    NotificationPreference?
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+  userAgent String?
+  ipAddress String?
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("refresh_tokens")
+}
+
+model Community {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String?
+  city        String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members          CommunityMember[]
+  posts            Post[]
+  categories       Category[]
+  categoryProposals CategoryProposal[]
+  auditLogs        AuditLog[]
+
+  @@index([slug])
+  @@index([city])
+  @@map("communities")
+}
+
+model CommunityMember {
+  userId      String
+  communityId String
+  joinedAt    DateTime @default(now())
+  isModerator Boolean  @default(false)
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@id([userId, communityId])
+  @@index([communityId])
+  @@map("community_members")
+}
+
+model Category {
+  id          String      @id @default(cuid())
+  slug        String
+  name        String
+  description String
+  type        String      @default("CUSTOM")
+  communityId String?
+  isActive    Boolean     @default(true)
+  isBuiltIn   Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  community   Community?  @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  posts       Post[]
+  mergedInto  CategoryProposal[] @relation("MergeTarget")
+
+  @@unique([slug, communityId])
+  @@index([communityId])
+  @@index([isActive])
+  @@map("categories")
+}
+
+model CategoryProposal {
+  id           String         @id @default(cuid())
+  name         String
+  description  String
+  communityId  String
+  proposedById String
+  status       String         @default("PENDING")
+  reviewedById String?
+  reviewNote   String?
+  mergeTargetId String?
+  supportCount Int            @default(0)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  community    Community      @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  proposedBy   User           @relation(fields: [proposedById], references: [id])
+  mergeTarget  Category?      @relation("MergeTarget", fields: [mergeTargetId], references: [id])
+  supports     ProposalSupport[]
+
+  @@index([communityId, status])
+  @@index([proposedById])
+  @@map("category_proposals")
+}
+
+model ProposalSupport {
+  userId     String
+  proposalId String
+  createdAt  DateTime @default(now())
+
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  proposal   CategoryProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@id([userId, proposalId])
+  @@map("proposal_supports")
+}
+
+model Post {
+  id               String     @id @default(cuid())
+  title            String
+  titleNormalized  String
+  description      String
+  category         String
+  categoryId       String?
+  status           String     @default("DRAFT")
+  authorId         String
+  communityId      String
+  locationCity     String
+  locationArea     String
+  locationPincode  String?
+  isOfficial       Boolean    @default(false)
+  isVerified       Boolean    @default(false)
+  severity         String?
+  helpfulCount     Int        @default(0)
+  confirmCount     Int        @default(0)
+  viewCount        Int        @default(0)
+  reportCount      Int        @default(0)
+  
+  contactInfo      String?
+  deadline         DateTime?
+  stipend          String?
+  organization     String?
+  lostItemName     String?
+  foundLocation    String?
+  reward           String?
+  eventDate        DateTime?
+  eventVenue       String?
+  externalLink     String?
+  sourceUrl        String?
+  
+  tags             String?    // JSON fallback as String for SQLite
+  
+  expiresAt        DateTime?
+  resolvedAt       DateTime?
+  publishedAt      DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  author           User       @relation(fields: [authorId], references: [id])
+  community        Community  @relation(fields: [communityId], references: [id])
+  customCategory   Category?  @relation(fields: [categoryId], references: [id])
+  images           PostImage[]
+  updates          PostUpdate[]
+  helpfulVotes     HelpfulVote[]
+  validityConfirms ValidityConfirmation[]
+  reports          Report[]
+  savedBy          SavedPost[]
+  followedBy       FollowedPost[]
+  notifications    Notification[]
+
+  @@index([communityId, status])
+  @@index([authorId])
+  @@index([category, status])
+  @@index([titleNormalized])
+  @@index([expiresAt])
+  @@index([createdAt])
+  @@map("posts")
+}
+
+model PostImage {
+  id        String   @id @default(cuid())
+  postId    String
+  url       String
+  filename  String
+  mimeType  String
+  sizeBytes Int
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@map("post_images")
+}
+
+model PostUpdate {
+  id        String     @id @default(cuid())
+  postId    String
+  authorId  String
+  content   String
+  type      String     @default("UPDATE")
+  createdAt DateTime   @default(now())
+
+  post      Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author    User       @relation(fields: [authorId], references: [id])
+
+  @@index([postId])
+  @@map("post_updates")
+}
+
+model HelpfulVote {
+  userId    String
+  postId    String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([userId, postId])
+  @@index([postId])
+  @@map("helpful_votes")
+}
+
+model ValidityConfirmation {
+  userId    String
+  postId    String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([userId, postId])
+  @@index([postId])
+  @@map("validity_confirmations")
+}
+
+model Report {
+  id          String       @id @default(cuid())
+  postId      String
+  reporterId  String
+  reason      String
+  details     String?
+  evidence    String?
+  status      String       @default("PENDING")
+  reviewedById String?
+  reviewNote  String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  post        Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  reporter    User         @relation(fields: [reporterId], references: [id])
+
+  @@unique([reporterId, postId])
+  @@index([postId, status])
+  @@index([createdAt])
+  @@map("reports")
+}
+
+model SavedPost {
+  userId    String
+  postId    String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([userId, postId])
+  @@index([userId])
+  @@map("saved_posts")
+}
+
+model FollowedPost {
+  userId    String
+  postId    String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([userId, postId])
+  @@index([userId])
+  @@map("followed_posts")
+}
+
+model Notification {
+  id         String           @id @default(cuid())
+  userId     String
+  type       String
+  title      String
+  body       String
+  postId     String?
+  read       Boolean          @default(false)
+  createdAt  DateTime         @default(now())
+
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post       Post?            @relation(fields: [postId], references: [id], onDelete: SetNull)
+
+  @@index([userId, read])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  userId         String  @id
+  emailEnabled   Boolean @default(true)
+  pushEnabled    Boolean @default(true)
+  followedPosts  Boolean @default(true)
+  nearbyPosts    Boolean @default(true)
+  deadline       Boolean @default(true)
+  moderation     Boolean @default(true)
+
+  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
+}
+
+model AuditLog {
+  id          String    @id @default(cuid())
+  actorId     String
+  action      String
+  entityType  String
+  entityId    String
+  reason      String?
+  metadata    String?   // JSON fallback as String for SQLite
+  communityId String?
+  createdAt   DateTime  @default(now())
+
+  actor       User      @relation(fields: [actorId], references: [id])
+  community   Community? @relation(fields: [communityId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
